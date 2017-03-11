@@ -126,9 +126,115 @@ def read_game(file):
 		return None;
 	# todo
 
-
 	return game
-		
+
+
+def print_game(file, game):
+	pass
+
+def bc_start(game, round):
+
+	start = 0
+	for r in range(round):
+
+		start += game.num_board_cards[r]
+
+	return start
+
+def sum_board_cards(game, round):
+
+	total = 0
+	for r in range(round):
+		total += game.num_board_cards[r]
+
+	return total
+
+def next_player(game, state, cur_player):
+
+	n = cur_player
+
+	n = (n + 1) % game.num_players
+
+	while state.player_folded[n] or state.spent[n] >= game.stack[n]:
+
+		n = (n + 1) % game.num_players
+
+	return n
+
+def current_player(game, state):
+
+	if state.num_actions[state.round]:
+
+		return next_player(game, state, state.acting_player[state.round][state.num_actions[state.round] - 1])
+
+	return next_player(game, state, game.first_player[state.round] + game.num_players - 1)
+
+def num_raises(state):
+
+	ret = 0
+	for i in range(state.num_actions):
+		if state.action[state.round][i].type == a_raise:
+			ret += 1
+
+	return ret
+
+def num_folded(game, state):
+
+	ret = 0
+	for p in range(game.num_players):
+		if state.player_folded[p]:
+			ret += 1
+
+	return ret
+
+def num_called(game, state):
+
+	ret = 0
+	for i in range(state.num_actions[state.round], 0, -1):
+
+		p = state.acting_player[state.round][i - 1]
+
+		if state.action[state.round][i - 1].type == a_raise:
+		# player initiated the bet, so they've called it
+
+			if state.spent[p] < game.stack[p]:
+				# player is not all-in, so they're still acting
+				ret += 1
+
+			return ret
+
+		elif state.spent[p] < game.stack[p]:
+
+			ret += 1
+
+	#d=end for loop
+	return ret
+
+def num_all_in(game, state):
+
+	ret = 0
+
+	for p in range(game.num_players):
+
+		if state.spent[p] >= game.stack[p]:
+			ret += 1
+
+	return ret
+
+def num_acting_players(game, state):
+
+	ret = 0
+
+	for p in range(game.num_players):
+
+		if state.player_folded[p] == 0 and state.spent[p] < game.stack[p]:
+
+			ret += 1
+	# end for loop
+
+	return ret
+
+
 
 def init_state(game, hand_id, state):
 
@@ -157,6 +263,38 @@ def init_state(game, hand_id, state):
 
 	state.round = 0
 	state.finished = 0
+
+# shuffle a deck of cards and deal them out, writing the results to state
+def deal_cards(game, rng, state):
+	
+	deck = []
+
+	for s in range(game.num_suits):
+		for r in range(game.num_ranks):
+			deck.append(make_card(r, s))
+
+	# shuffle
+	random.shuffle(deck)
+
+	# deal hole cards
+	for p in range(game.num_players):
+		for i in range(game.num_hole_cards):
+			state.hole_cards[p][i] = deck.pop()
+
+	# deal board cards
+	idx = 0
+	for r in range(game.num_rounds):
+		for i in range(game.num_board_cards):
+			state.board_cards[idx] = deck.pop()
+
+def read_card(card):
+	pass
+
+
+def state_finished(state):
+	assert not state.finished == None
+	return state.finished
+
 
 
 def test():

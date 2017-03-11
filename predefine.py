@@ -5,6 +5,7 @@ NUM_PORT_CREATION_ATTEMPTS = 10
 
 
 EXIT_FAILURE = 2
+EXIT_SUCCESS = 0
 
 # for game.py
 INT32_MAX = 2^31 - 1
@@ -99,7 +100,7 @@ class State():
 		# action[ r ][ i ] gives the i'th action in round r
 		self.action = [[0 for r in range(MAX_NUM_ACTIONS)] for i in range(MAX_ROUNDS)]
 
-		# actingPlayer[ r ][ i ] gives the player who made action i in round r
+		# actingPlayer[ r ][ i ] gives the player who made i-th action in round r
 		# we can always figure this out from the actions taken, but it's
 		# easier to just remember this in multiplayer (because of folds)
 		self.action_player = [[0 for r in range(MAX_NUM_ACTIONS)] for i in range(MAX_ROUNDS)]
@@ -125,6 +126,19 @@ class State():
 
 
 class MatchState():
-	def __init__():
-		self.state = None
+	def __init__(self):
+		self.state = State()
 		self.viewing_player = None # integer
+
+def make_card(rank, suit):
+
+	return rank * MAX_SUITS + suit
+
+def rank_of_card(card):
+
+	return card // MAX_SUITS
+
+def suit_of_card(card):
+
+	return card % MAX_SUITS
+

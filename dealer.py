@@ -2,6 +2,7 @@ import sys
 import getopt
 import random
 import time
+import select
 
 from game import read_game
 from predefine import *
@@ -77,6 +78,140 @@ def print_initial_message(match_name, game_name, num_hands, seed, info, log_file
 		if log_file:
 
 			pass
+
+# returns >= 0 if match should continue, -1 on failure
+def check_version(seat, read_buff, seat_FD):
+
+	# assert type(seat) == int
+	# print("in check version type of read_buff[seat]", type(read_buff[seat]))
+	ret = get_line(read_buff, seat_FD, seat, MAX_LINE_LEN, -1)
+
+	if ret < 0: 
+		# ret is None
+		sys.stderr.write( "ERROR: could not read version string from seat %d\n" %(seat + 1))
+		return -1
+
+	line = read_buff[seat]
+
+	if line.count(':') == 1 and line.count('.') == 2:
+
+		(major, minor, unused) = line.strip('\n\r').split(':')[1].split('.')
+		print((major, minor, unused))
+
+		if (not int(major) == VERSION_MAJOR) or (int(minor) > VERSION_MINOR):
+
+			sys.stderr.write("ERROR: this server is currently using version %d.%d.%d\n" %\
+				 (VERSION_MAJOR, VERSION_MINOR, VERSION_REVISION))
+			return -1
+
+	else: 
+		# format error
+		sys.stderr.write("ERROR: invalid version string %s\n" % line)
+		return -1
+
+	return 0
+
+
+
+
+def game_loop(game, seat_name, num_hands, quiet, fixed_seats, rng,\
+	 error_info, seat_FD, read_buff, log_file, transaction_file):
+	
+	# print("in game loop type of read_buff", type(read_buff))
+	finish_game_loop = False
+	state = MatchState()
+
+	value = [0 for i in range(MAX_PLAYERS)]
+	total_value = [0 for i in range(MAX_PLAYERS)]
+
+	# check version string for each player
+	for seat in range(game.num_players):
+		print("in game loop type of read_buff[seat]", type(read_buff[seat]))
+		if check_version(seat, read_buff, seat_FD) < 0:
+
+			return -1
+	# end for loop
+
+	send_time = time.time()
+
+	if not quiet: # todo format
+		sys.stderr.write("STARTED at %d\n" % send_time)
+
+	hand_id = 0
+
+	if check_error_new_hand(game, error_info) < 0:
+		sys.stderr.write("ERROR: unexpected game\n")
+
+	init_state(game, hand_id, state.state)
+
+	deal_cards(game, rng, state.state)
+
+	for seat in range(game.num_p):
+		total_value[seat] = 0.0
+
+	# seat 0 is player 0 in first game
+	player0_seat = 0
+
+	if not transaction_file:
+		# todo
+		pass
+
+	if hand_id >= num_hands:
+		return finish_game_loop(quiet, game, seat_name, total_value, log_file)
+
+	while True:
+
+		while not state_finished(state.state):
+
+			current_p = current_player(game, state.state)
+
+			for seat in range(game.num_players):
+
+				state.viewing_player = seat_to_player(game, player0_seat, seat)
+
+				if send_player_message(game, state, quiet, seat, seat_FD, t) < 0:
+					return -1
+
+
+
+	return 0
+
+
+def seat_to_player(game, player0_seat, seat):
+	return (seat + game.num_players - player0_seat) % game.num_players
+
+def player_to_seat(game, player0_seat, player):
+	return (player + player0_seat) % game.num_players
+
+def send_player_message(game, state, quiet, seat, seat_FD, send_time):
+	pass
+
+def read_player_response(game, state, quiet, send_time, error_info, read_buff, action, recv_time):
+	pass
+
+def finish_game_loop(quiet, game, seat_name, total_value, log_file):
+
+	if not quiet:
+
+		cur_time = time.time()
+		sys.stderr.write("FINISHED at %d" % cur_time)
+
+	# print final message
+
+
+	log_string = ""
+	for seat in range(game.num_players):
+		name = seat_name[seat]
+		log_string += "%s: %d\n" % (name, total_value[seat])
+
+	print(log_string)
+	sys.stderr.write(log_string)
+
+	if log_file:
+		log_file.write(log_string)
+	
+	return 0
+
 
 
 def main(argv = None):
@@ -273,7 +408,7 @@ def main(argv = None):
 		exit(EXIT_FAILURE)
 
 	# create/open the log
-	if log_file:
+	if use_log_file:
 
 		log_file = open(match_name, 'a+') if append else open(match_name, 'w')
 
@@ -281,6 +416,7 @@ def main(argv = None):
 
 			sys.stderr.write("ERROR: could not open log file %s\n" % match_name)
 			exit(EXIT_FAILURE)
+
 	else:
 
 		log_file = None
@@ -294,6 +430,7 @@ def main(argv = None):
 
 			sys.stderr.write("ERROR: could not open log file %s\n" % match_name)
 			exit(EXIT_FAILURE)
+
 	else:
 
 		transaction_file = None
@@ -324,7 +461,9 @@ def main(argv = None):
 	# print out usage information
 	print_initial_message(match_name, game_name, num_hands, seed, error_info, log_file)
 		
-	# wait for each players to connnect
+	# wait for each players to connnect, default no timeout if start_timeout parameter is not given by 
+	# command line
+	# if no timeout, then accept() will block until all the version data each with an agent are received  
 	start_time = time.time()
 	
 	for i in range(game.num_players):
@@ -344,11 +483,33 @@ def main(argv = None):
 			readable, writeable, error = select.select([listen_socket[i]], [], [],\
 			 start_time_left_in_sec)
 			print(type(readable), len(readable))
+			if len(readable) == 0:
+				sys.stderr.write("could not get response from seat %d\n" % (i + 1))
+				exit(EXIT_FAILURE)
 			print(readable)
 		# end if start_timeout_micros >= 0
 
-		new_sock, addr = listen_socket[i].accept()
-		print("%d-th connection established!" % i + 1)
+		seat_FD[i], addr = listen_socket[i].accept()
+		seat_FD[i].setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+
+		# create readBuff[i] for seat[i] but different from original code
+		read_buff[i] = []
+		
+		# close(listen_socket[i])
+		print("%d-th connection established!" % (i + 1))
+	# end for loop
+
+	if game_loop(game, seat_name, num_hands, quiet, fixed_seats, rng, error_info,\
+		seat_FD, read_buff, log_file, transaction_file) < 0:
+
+		exit(EXIT_FAILURE)
+
+	# some flush job
+	#sys.stderr.flush()
+	del game
+
+	return exit(EXIT_SUCCESS)
+
 
 if __name__ == "__main__":
 	sys.exit(main())
